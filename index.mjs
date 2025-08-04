@@ -12,6 +12,10 @@ const PORT = process.env.PORT || 3000;
 // This is necessary for the frontend to communicate with the backend
 app.use(cors());
 
+app.get("/", (req, res) => {
+  res.send("Hello from Pokedex backend!");
+});
+
 // Route 1: List of first 150 Pokémon (basic info)
 app.get("/api/pokemon", async (req, res) => {
   // try-catch block to handle errors during the fetch operation
