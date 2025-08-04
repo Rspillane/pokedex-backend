@@ -7,6 +7,9 @@ const app = express();
 
 // Set the port to an environment variable or default to 3000
 const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
 // cors middleware to allow cross-origin requests
 // This is necessary for the frontend to communicate with the backend
@@ -18,6 +21,7 @@ app.get("/", (req, res) => {
 
 // Route 1: List of first 150 Pokémon (basic info)
 app.get("/api/pokemon", async (req, res) => {
+  console.log("Received request for /api/pokemon");
   // try-catch block to handle errors during the fetch operation
   try {
     // Fetch the first 150 Pokémon from the PokeAPI
