@@ -2,43 +2,32 @@ import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 
-// Initialize the Express application
 const app = express();
-
-// Set the port to an environment variable or default to 3000
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
 
-// cors middleware to allow cross-origin requests
-// This is necessary for the frontend to communicate with the backend
+// Middleware
 app.use(cors());
 
+// Health Check Route
+app.get("/ping", (req, res) => {
+  res.send("pong");
+});
+
+// Basic Root Route
 app.get("/", (req, res) => {
   res.send("Hello from Pokedex backend!");
 });
 
-// Route 1: List of first 150 Pokémon (basic info)
+// Route 1: List of first 150 Pokémon
 app.get("/api/pokemon", async (req, res) => {
   console.log("Received request for /api/pokemon");
-  // try-catch block to handle errors during the fetch operation
   try {
-    // Fetch the first 150 Pokémon from the PokeAPI
-    // This endpoint returns basic information about each Pokémon
     const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=150");
-
-    // Check if the response is ok (status code 200-299)
     const data = await response.json();
 
-    // Map through the results to fetch detailed information for each Pokémon
     const detailedPromises = data.results.map(async pokemon => {
-      // For each Pokémon, fetch its detailed information
       const res = await fetch(pokemon.url);
-
-      // await for the response to be converted to JSON
       const details = await res.json();
-      // Return an object containing the Pokémon's id, name, sprite, and types
       return {
         id: details.id,
         name: details.name,
@@ -47,11 +36,6 @@ app.get("/api/pokemon", async (req, res) => {
       };
     });
 
-    // Wait for all detailed Pokémon data to be fetched
-    // This ensures that the response contains detailed information for each Pokémon
-    // The Promise.all method is used to handle multiple asynchronous operations
-    // It waits for all promises in the array to resolve and returns an array of results
-    // If any promise rejects, it will throw an error
     const pokemons = await Promise.all(detailedPromises);
     res.json(pokemons);
   } catch (error) {
@@ -120,7 +104,7 @@ app.get("/api/pokemon/:name", async (req, res) => {
   }
 });
 
-// Start the server and listen on the specified port
-app.listen(PORT, () => {
+// Start server (Only once!)
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on ${PORT}`);
 });
