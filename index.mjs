@@ -25,27 +25,27 @@ app.get("/api/pokemon", async (req, res) => {
     const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=150");
     const data = await response.json();
 
-    // const detailedPromises = data.results.map(async pokemon => {
-    //   const res = await fetch(pokemon.url);
-    //   const details = await res.json();
-    //   return {
-    //     id: details.id,
-    //     name: details.name,
-    //     sprite: details.sprites.front_default,
-    //     types: details.types.map(t => t.type.name)
-    //   };
-    // });
-
-    const pokemons = data.results.map(pokemon => {
+    const detailedPromises = data.results.map(async pokemon => {
+      const res = await fetch(pokemon.url);
+      const details = await res.json();
       return {
-        id: pokemon.id,
-        name: pokemon.name,
-        sprite: pokemon.sprites.front_default,
-        types: pokemon.types.map(t => t.type.name)
+        id: details.id,
+        name: details.name,
+        sprite: details.sprites.front_default,
+        types: details.types.map(t => t.type.name)
       };
     });
 
-    // const pokemons = await Promise.all(detailedPromises);
+    // const pokemons = data.results.map(pokemon => {
+    //   return {
+    //     id: pokemon.id,
+    //     name: pokemon.name,
+    //     sprite: pokemon.sprites.front_default,
+    //     types: pokemon.types.map(t => t.type.name)
+    //   };
+    // });
+
+    const pokemons = await Promise.all(detailedPromises);
     res.json(pokemons);
   } catch (error) {
     console.error("Error fetching Pokémon list:", error);
