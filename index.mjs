@@ -1,109 +1,115 @@
 import express from "express";
-import fetch from "node-fetch";
 import cors from "cors";
+import pkg from "pg";
+import dotenv from "dotenv";
+dotenv.config();
+
+const { Pool } = pkg;
+
+// Postgres pool config
+const pool = new Pool({
+  host: process.env.PG_HOST,
+  user: process.env.PG_USER,
+  password: process.env.PG_PASSWORD,
+  database: process.env.PG_DATABASE,
+  port: parseInt(process.env.PG_PORT, 10),
+  ssl: { rejectUnauthorized: false }
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
+app.use(express.json());
 
-// Health Check Route
-app.get("/ping", (req, res) => {
-  res.send("pong");
-});
-
-// Basic Root Route
-app.get("/", (req, res) => {
-  res.send("Hello from Pokedex backend!");
-});
-
-// Route 1: List of first 150 Pokémon
+// Route to get list of basic pokemon info
 app.get("/api/pokemon", async (req, res) => {
-  console.log("Received request for /api/pokemon");
   try {
-    const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=150");
-    const data = await response.json();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 25;
+    const offset = (page - 1) * limit;
+    const sort = req.query.sort === "name" ? "name" : "id"; // default sort by id
+    const typeFilter = req.query.type;
 
-    const detailedPromises = data.results.map(async pokemon => {
-      const res = await fetch(pokemon.url);
-      const details = await res.json();
-      return {
-        id: details.id,
-        name: details.name,
-        sprite: details.sprites.front_default,
-        types: details.types.map(t => t.type.name)
-      };
+    // Base query and params array
+    let baseQuery = "FROM pokemon";
+    const params = [];
+
+    // Add type filter if provided
+    if (typeFilter) {
+      params.push(`%${typeFilter}%`);
+      baseQuery += ` WHERE types::text ILIKE $${params.length}`;
+      // assuming types is stored as array or JSONB, casting to text for ILIKE
+    }
+
+    // Get total count for filtered dataset
+    const countResult = await pool.query(
+      `SELECT COUNT(*) ${baseQuery}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count);
+
+    // Add pagination params
+    params.push(limit);
+    params.push(offset);
+
+    // Query for paginated, filtered, sorted results
+    const queryText = `
+      SELECT id, name, sprite, types
+      ${baseQuery}
+      ORDER BY ${sort} ASC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `;
+
+    const result = await pool.query(queryText, params);
+
+    res.json({
+      results: result.rows,
+      total
     });
-
-    // const pokemons = data.results.map(pokemon => {
-    //   return {
-    //     id: pokemon.id,
-    //     name: pokemon.name,
-    //     sprite: pokemon.sprites.front_default,
-    //     types: pokemon.types.map(t => t.type.name)
-    //   };
-    // });
-
-    const pokemons = await Promise.all(detailedPromises);
-    res.json(pokemons);
   } catch (error) {
-    console.error("Error fetching Pokémon list:", error);
+    console.error("Error querying database:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
-// Route 2: Detailed info for a single Pokémon
+// Route to get detailed info for a single Pokémon
 app.get("/api/pokemon/:name", async (req, res) => {
   const name = req.params.name.toLowerCase();
 
-  function parseEvolutionChain(chain) {
-    const evoArray = [];
-    function traverse(chainNode) {
-      evoArray.push(chainNode.species.name);
-      if (chainNode.evolves_to.length > 0) {
-        chainNode.evolves_to.forEach(evolve => traverse(evolve));
-      }
-    }
-    traverse(chain);
-    return evoArray;
-  }
-
   try {
-    const pokeResponse = await fetch(
-      `https://pokeapi.co/api/v2/pokemon/${name}`
+    // Query DB for Pokémon basic info
+    const pokeResult = await pool.query(
+      "SELECT * FROM pokemon WHERE name = $1",
+      [name]
     );
-    if (!pokeResponse.ok) {
+    if (pokeResult.rowCount === 0) {
       return res.status(404).json({ error: "Pokémon not found" });
     }
-    const pokeData = await pokeResponse.json();
+    const pokeData = pokeResult.rows[0];
 
-    const speciesResponse = await fetch(pokeData.species.url);
-    if (!speciesResponse.ok) {
-      return res.status(404).json({ error: "Species data not found" });
+    // Since you don’t have detailed data in DB yet, fallback to PokeAPI for details
+    const fetchResponse = await fetch(
+      `https://pokeapi.co/api/v2/pokemon/${name}`
+    );
+    if (!fetchResponse.ok) {
+      return res.status(404).json({ error: "Pokémon details not found" });
     }
-    const speciesData = await speciesResponse.json();
+    const details = await fetchResponse.json();
 
-    const evoChainResponse = await fetch(speciesData.evolution_chain.url);
-    if (!evoChainResponse.ok) {
-      return res.status(404).json({ error: "Evolution chain data not found" });
-    }
-    const evoChainData = await evoChainResponse.json();
-
-    const evolutionChain = parseEvolutionChain(evoChainData.chain);
-
+    // Format the response with both DB basic info and fetched detailed info
     const result = {
+      id: pokeData.id,
       name: pokeData.name,
-      height: pokeData.height / 10,
-      weight: pokeData.weight / 10,
-      habitat: speciesData.habitat ? speciesData.habitat.name : "unknown",
-      evolutionChain,
-      types: pokeData.types.map(t => t.type.name),
-      abilities: pokeData.abilities.map(a => ({
+      sprite: pokeData.sprite,
+      types: pokeData.types,
+      height: details.height / 10,
+      weight: details.weight / 10,
+      abilities: details.abilities.map(a => ({
         name: a.ability.name,
         is_hidden: a.is_hidden
-      })),
-      sprites: pokeData.sprites.front_default
+      }))
+      // Add more details as needed
     };
 
     res.json(result);
@@ -113,7 +119,6 @@ app.get("/api/pokemon/:name", async (req, res) => {
   }
 });
 
-// Start server (Only once!)
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on ${PORT}`);
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
